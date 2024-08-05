@@ -1,0 +1,14 @@
+az ad sp create-for-rbac --name <your-service-principal-name> --role Contributor --scopes /subscriptions/<your-subscription-id>
+
+{
+  "clientId": "<appId>",
+  "clientSecret": "<password>",
+  "subscriptionId": "<your-subscription-id>",
+  "tenantId": "<tenant>"
+}
+
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
