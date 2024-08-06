@@ -1,14 +1,38 @@
-az ad sp create-for-rbac --name <your-service-principal-name> --role Contributor --scopes /subscriptions/<your-subscription-id>
+resource "azurerm_postgresql_flexible_server" "example" {
+  name                          = "example-psqlflexibleserver"
+  resource_group_name           = azurerm_resource_group.example.name
+  location                      = azurerm_resource_group.example.location
+  version                       = "12"
+  delegated_subnet_id           = azurerm_subnet.example.id
+  private_dns_zone_id           = azurerm_private_dns_zone.example.id
+  public_network_access_enabled = false
+  administrator_login           = "psqladmin"
+  administrator_password        = "H@Sh1CoR3!"
+  zone                          = "1"
 
-{
-  "clientId": "<appId>",
-  "clientSecret": "<password>",
-  "subscriptionId": "<your-subscription-id>",
-  "tenantId": "<tenant>"
+  storage_mb   = 32768
+  storage_tier = "P30"
+
+  sku_name   = "GP_Standard_D4s_v3"
+  depends_on = [azurerm_private_dns_zone_virtual_network_link.example]
+
 }
 
+#####
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+provider "azurerm" {
+  version = "2.34.0"
+}
+
+resource "azurerm_postgresql_flexible_server_database" "postgresql_db" {
+  name                = "your_database_name"
+  resource_group_name = azurerm_resource_group.rg.name
+  server_name         = "your_server_name"
+  sku_name           = "B_Gen5_2"
+  storage_mb          = 5120
+  backup_retention_days = 7
+  administrator_login = "psqladmin"
+  administrator_login_password = "H@Sh1CoR3!"
+  version            = "9.5"
+  ssl_enforcement_enabled = true
+}
