@@ -1,38 +1,45 @@
-resource "azurerm_postgresql_flexible_server" "example" {
-  name                          = "example-psqlflexibleserver"
-  resource_group_name           = azurerm_resource_group.example.name
-  location                      = azurerm_resource_group.example.location
-  version                       = "12"
-  delegated_subnet_id           = azurerm_subnet.example.id
-  private_dns_zone_id           = azurerm_private_dns_zone.example.id
-  public_network_access_enabled = false
-  administrator_login           = "psqladmin"
-  administrator_password        = "H@Sh1CoR3!"
-  zone                          = "1"
-
-  storage_mb   = 32768
-  storage_tier = "P30"
-
-  sku_name   = "GP_Standard_D4s_v3"
-  depends_on = [azurerm_private_dns_zone_virtual_network_link.example]
-
-}
 
 #####
 
-provider "azurerm" {
-  version = "2.34.0"
+terraform {
+  required_version = ">=1.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~>3.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.4.0"
+    }
+  }
 }
 
-resource "azurerm_postgresql_flexible_server_database" "postgresql_db" {
-  name                = "your_database_name"
-  resource_group_name = azurerm_resource_group.rg.name
-  server_name         = "your_server_name"
-  sku_name           = "B_Gen5_2"
-  storage_mb          = 5120
-  backup_retention_days = 7
-  administrator_login = "psqladmin"
-  administrator_login_password = "H@Sh1CoR3!"
-  version            = "9.5"
-  ssl_enforcement_enabled = true
+provider "azurerm" {
+  features {}
+}
+
+resource "azurerm_postgresql_flexible_server" "default" {
+  name                   = "${random_pet.name_prefix.id}-server"
+  resource_group_name    = azurerm_resource_group.default.name
+  location               = azurerm_resource_group.default.location
+  version                = "13"
+  delegated_subnet_id    = azurerm_subnet.default.id
+  private_dns_zone_id    = azurerm_private_dns_zone.default.id
+  administrator_login    = "adminTerraform"
+  administrator_password = random_password.pass.result
+  zone                   = "1"
+  storage_mb             = 32768
+  sku_name               = "GP_Standard_D2s_v3"
+  backup_retention_days  = 7
+
+  depends_on = [azurerm_private_dns_zone_virtual_network_link.default]
+}
+
+resource "azurerm_postgresql_flexible_server_database" "default" {
+  name      = "${random_pet.name_prefix.id}-db"
+  server_id = azurerm_postgresql_flexible_server.default.id
+  collation = "en_US.utf8"
+  charset   = "UTF8"
 }
