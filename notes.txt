@@ -1,45 +1,179 @@
-
-#####
-
-terraform {
-  required_version = ">=1.0"
-
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~>3.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = ">= 3.4.0"
-    }
-  }
-}
-
 provider "azurerm" {
   features {}
 }
 
-resource "azurerm_postgresql_flexible_server" "default" {
-  name                   = "${random_pet.name_prefix.id}-server"
-  resource_group_name    = azurerm_resource_group.default.name
-  location               = azurerm_resource_group.default.location
-  version                = "13"
-  delegated_subnet_id    = azurerm_subnet.default.id
-  private_dns_zone_id    = azurerm_private_dns_zone.default.id
-  administrator_login    = "adminTerraform"
-  administrator_password = random_password.pass.result
-  zone                   = "1"
-  storage_mb             = 32768
-  sku_name               = "GP_Standard_D2s_v3"
-  backup_retention_days  = 7
-
-  depends_on = [azurerm_private_dns_zone_virtual_network_link.default]
+# Resource Group
+resource "azurerm_resource_group" "example" {
+  name     = "example-resources"
+  location = "East US"
 }
 
-resource "azurerm_postgresql_flexible_server_database" "default" {
-  name      = "${random_pet.name_prefix.id}-db"
-  server_id = azurerm_postgresql_flexible_server.default.id
-  collation = "en_US.utf8"
-  charset   = "UTF8"
+# Virtual Network
+resource "azurerm_virtual_network" "example_vnet" {
+  name                = "example-vnet"
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  address_space       = ["10.0.0.0/16"]
+}
+
+# Subnet for AKS
+resource "azurerm_subnet" "aks_subnet" {
+  name                 = "aks-subnet"
+  resource_group_name  = azurerm_resource_group.example.name
+  virtual_network_name = azurerm_virtual_network.example_vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# Subnet for Application Gateway
+resource "azurerm_subnet" "appgw_subnet" {
+  name                 = "appgw-subnet"
+  resource_group_name  = azurerm_resource_group.example.name
+  virtual_network_name = azurerm_virtual_network.example_vnet.name
+  address_prefixes     = ["10.0.2.0/24"]
+}
+
+# AKS Cluster
+resource "azurerm_kubernetes_cluster" "aks" {
+  name                = "example-aks"
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  dns_prefix          = "exampleaks"
+
+  default_node_pool {
+    name       = "default"
+    node_count = 3
+    vm_size    = "Standard_DS2_v2"
+    vnet_subnet_id = azurerm_subnet.aks_subnet.id
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# Application Gateway
+resource "azurerm_application_gateway" "appgw" {
+  name                = "example-appgw"
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  sku {
+    name     = "Standard_v2"
+    tier     = "Standard_v2"
+    capacity = 2
+  }
+  gateway_ip_configuration {
+    name      = "appgw-ip-config"
+    subnet_id = azurerm_subnet.appgw_subnet.id
+  }
+  frontend_port {
+    name = "frontend-port"
+    port = 80
+  }
+  frontend_ip_configuration {
+    name                 = "appgw-frontend-ip"
+    public_ip_address_id = azurerm_public_ip.appgw_public_ip.id
+  }
+  backend_address_pool {
+    name = "appgw-backend-pool"
+  }
+  http_settings {
+    name                  = "appgw-http-settings"
+    cookie_based_affinity = "Disabled"
+    port                  = 80
+    protocol              = "Http"
+    request_timeout       = 20
+  }
+  http_listener {
+    name                           = "appgw-http-listener"
+    frontend_ip_configuration_name = "appgw-frontend-ip"
+    frontend_port_name             = "frontend-port"
+    protocol                       = "Http"
+  }
+  request_routing_rule {
+    name                       = "appgw-routing-rule"
+    rule_type                  = "Basic"
+    http_listener_name         = "appgw-http-listener"
+    backend_address_pool_name  = "appgw-backend-pool"
+    backend_http_settings_name = "appgw-http-settings"
+  }
+  depends_on = [azurerm_subnet.appgw_subnet]
+}
+
+# Public IP for Application Gateway
+resource "azurerm_public_ip" "appgw_public_ip" {
+  name                = "appgw-public-ip"
+  location            = azurerm_resource_group.example.location
+  resource_group_name = azurerm_resource_group.example.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
+# Assigning AKS Cluster Managed Identity to Application Gateway for AGIC
+resource "azurerm_role_assignment" "agic_role_assignment" {
+  principal_id   = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+  role_definition_name = "Contributor"
+  scope          = azurerm_application_gateway.appgw.id
+}
+
+# Application Gateway Ingress Controller (AGIC)
+resource "kubernetes_deployment" "agic" {
+  metadata {
+    name      = "agic"
+    namespace = "kube-system"
+    labels = {
+      app = "agic"
+    }
+  }
+
+  spec {
+    replicas = 1
+    selector {
+      match_labels = {
+        app = "agic"
+      }
+    }
+    template {
+      metadata {
+        labels = {
+          app = "agic"
+        }
+      }
+      spec {
+        container {
+          name  = "azure-application-gateway-controller"
+          image = "mcr.microsoft.com/azure/application-gateway-ingress:latest"
+          env {
+            name  = "APPGW_SUBNET_ID"
+            value = azurerm_subnet.appgw_subnet.id
+          }
+          env {
+            name  = "APPGW_RESOURCE_ID"
+            value = azurerm_application_gateway.appgw.id
+          }
+          env {
+            name  = "AKS_CLUSTER_RESOURCE_ID"
+            value = azurerm_kubernetes_cluster.aks.id
+          }
+          env {
+            name  = "AZURE_CLIENT_ID"
+            value = azurerm_kubernetes_cluster.aks.kubelet_identity[0].client_id
+          }
+          env {
+            name  = "AZURE_TENANT_ID"
+            value = data.azurerm_client_config.current.tenant_id
+          }
+        }
+      }
+    }
+  }
+}
+
+# Output the AKS Cluster details
+output "aks_cluster_name" {
+  value = azurerm_kubernetes_cluster.aks.name
+}
+
+# Output the Application Gateway details
+output "appgw_id" {
+  value = azurerm_application_gateway.appgw.id
 }
