@@ -177,3 +177,14 @@ output "aks_cluster_name" {
 output "appgw_id" {
   value = azurerm_application_gateway.appgw.id
 }
+
+
+$latest_version = (Invoke-RestMethod -Uri https://api.github.com/repos/hashicorp/terraform/releases/latest).tag_name
+$url = "https://releases.hashicorp.com/terraform/$latest_version/terraform_${latest_version}_windows_amd64.zip"
+$output = "$env:TEMP\terraform.zip"
+Invoke-WebRequest -Uri $url -OutFile $output
+
+Expand-Archive -Path $output -DestinationPath "C:\Terraform" -Force
+
+# Assuming your Terraform binary is located at C:\Terraform
+Move-Item -Path "C:\Terraform\terraform.exe" -Destination "C:\Program Files\Terraform\terraform.exe" -Force
