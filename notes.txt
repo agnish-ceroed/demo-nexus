@@ -1,8 +1,6 @@
-az aks get-credentials --resource-group <your-resource-group> --name <your-cluster-name>
+az aks get-credentials --resource-group nexus-rg --name nexus-cluster
 
-kubectl create secret generic stg-acc-secret \
-  --from-literal=account-key=<your-storage-account-key> \
-  --namespace <your-namespace>
+kubectl create secret generic stg-acc-secret --from-literal=account-key=<your-storage-account-key> 
 
 kubectl create secret generic stg-acc-secret \
   --from-literal=account-key=abcd1234efgh5678ijkl \
